@@ -1,4 +1,4 @@
-#Preprocessing pipeline:
+# Preprocessing pipeline:
 
 1. Convert the .raw fiels to .mzml files, using raw_to_mzml.sh script 
 2. Create and activate the conda environment from metabolomics.yml
