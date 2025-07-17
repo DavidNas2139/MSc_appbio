@@ -1,0 +1,273 @@
+---
+title: "Extended Dataset Analysis"
+output: html_document
+date: "2025-02-06"
+---
+
+# Loading the packages and the data 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+df = read.csv("originals/GH_5000.csv")
+
+```
+
+# Repeat the analysis performed on the initial dataset 
+
+Change column names, turn the Haemolysed column to boolean, Date of collection as Date 
+```{r}
+head(df)
+
+df = df%>% 
+  rename(date_of_collection = Date.Of.Collection,
+         Sex = M.F,
+         Age = Age.at.test,
+         IGF1_mean = IGF.I.Mean,
+         P3NP_mean = PIIINP.Mean,
+         GH2000_score = GH.Score,
+         Athlete_Id = Athlete.ID,
+         Haemolysed = Notes.re..sample.validity,
+         Sample_code = Sample.Code) %>%
+  mutate(X = NULL,
+         Haemolysed = ifelse(Haemolysed=="Haemolysed",TRUE,FALSE), #As boolean
+         date_of_collection = as.Date(date_of_collection,"%d/%m/%y")) #As date
+
+df_multiple_tests <- df %>%
+  group_by(Athlete_Id) %>%  # Group by 'new_Id'
+  filter(n() > 1) %>%   # Keep only groups with more than one row
+  ungroup()             # Ungroup the data
+
+df_summary <- df_multiple_tests %>%
+  group_by(Athlete_Id) %>%  # Group by 'new_Id'
+  reframe(
+    min_gh2000 = min(GH2000_score, na.rm = TRUE),   # Minimum of gh2000_score
+    max_gh2000 = max(GH2000_score, na.rm = TRUE),   # Maximum of gh2000_score
+    variance = var(GH2000_score, na.rm = TRUE),
+    mean_gh2000 = mean(GH2000_score, na.rm = TRUE), # Mean of GH2000_score
+    sd_gh2000 = sd(GH2000_score, na.rm = TRUE),     # Standard deviation of GH2000_score
+    cutoff_point = mean(GH2000_score, na.rm = TRUE) + 3 * sd(GH2000_score, na.rm = TRUE),# Variance of gh2000_score
+    num_of_repeats = n(),
+    Sex = Sex,
+    CV = sd(GH2000_score, na.rm = TRUE)*100/mean(GH2000_score, na.rm = TRUE)# Count of repeats
+  ) %>%
+  ungroup() 
+```
+
+Create a function to analyze GH2000 without the outliers
+
+```{r}
+analyze_gh2000 <- function(data, athlete_id) {  
+  # Filter data for the given athlete_id
+  df <- data %>%
+    filter(Athlete_Id == athlete_id)  
+  
+  # Convert date column to Date format and sort by date
+  df <- df %>% arrange(date_of_collection)
+  
+  # Remove outliers based on Z-score
+  no_outlier <- df %>%
+    mutate(z_scores = as.numeric(scale(GH2000_score))) %>%
+    filter(abs(z_scores) < 2)
+  
+  # Compute lower and upper cutoffs (mean ± 3*SD)
+  lower_cutoff <- mean(no_outlier$GH2000_score, na.rm = TRUE) - 3 * sd(no_outlier$GH2000_score, na.rm = TRUE)
+  upper_cutoff <- mean(no_outlier$GH2000_score, na.rm = TRUE) + 3 * sd(no_outlier$GH2000_score, na.rm = TRUE)
+  
+  # Find max GH2000_score per athlete
+  max_gh2000 <- max(df$GH2000_score, na.rm = TRUE)
+  
+  # Identify IDs exceeding the upper cutoff
+  exceed_ids <- ifelse(max_gh2000 > upper_cutoff, athlete_id, NA) %>% na.omit()
+  
+  # Generate the plot
+  plot <- ggplot(df, aes(x = date_of_collection, y = GH2000_score)) +
+    geom_point(size = 3, color = "black") +                 
+    geom_line(color = "black") +                           
+    geom_hline(yintercept = lower_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = upper_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = 9.98, linetype = "solid", color = "grey") +
+    geom_hline(yintercept = 8.62, linetype = "solid", color = "grey") +  
+    labs(
+      title = paste(athlete_id, "GH-2000 vs Date of Collection"),
+      x = "Date of Collection",
+      y = "GH-2000"
+    ) +
+    theme_minimal()
+  
+  # Return both the plot and the IDs that exceeded the cutoff
+  return(list(plot = plot, exceed_ids = exceed_ids))
+}
+
+analyze_P3NP = function(data, athlete_id) {  
+  # Filter data for the given athlete_id
+  df <- data %>%
+    filter(Athlete_Id == athlete_id)  
+  
+  # Convert date column to Date format and sort by date
+  df <- df %>% arrange(date_of_collection)
+  
+  # Remove outliers based on Z-score
+  no_outlier <- df %>%
+    mutate(z_scores = as.numeric(scale(P3NP_mean))) %>%
+    filter(abs(z_scores) < 2)
+  
+  # Compute lower and upper cutoffs (mean ± 3*SD)
+  lower_cutoff <- mean(no_outlier$P3NP_mean, na.rm = TRUE) - 3 * sd(no_outlier$P3NP_mean, na.rm = TRUE)
+  upper_cutoff <- mean(no_outlier$P3NP_mean, na.rm = TRUE) + 3 * sd(no_outlier$P3NP_mean, na.rm = TRUE)
+  
+  # Find max GH2000_score per athlete
+  max_P3NP <- max(df$P3NP_mean, na.rm = TRUE)
+  
+  # Identify IDs exceeding the upper cutoff
+  exceed_ids <- ifelse(max_P3NP > upper_cutoff, athlete_id, NA) %>% na.omit()
+  
+  # Generate the plot
+  plot <- ggplot(df, aes(x = date_of_collection, y = P3NP_mean)) +
+    geom_point(size = 3, color = "black") +                 
+    geom_line(color = "black") +                           
+    geom_hline(yintercept = lower_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = upper_cutoff, linetype = "dotted", color = "indianred") +
+   # geom_hline(yintercept = 9.98, linetype = "solid", color = "grey") +
+   # geom_hline(yintercept = 8.62, linetype = "solid", color = "grey") +  
+    labs(
+      title = paste(athlete_id, "P3NP vs Date of Collection"),
+      x = "Date of Collection",
+      y = "P3NP Mean"
+    ) +
+    theme_minimal()
+  
+  # Return both the plot and the IDs that exceeded the cutoff
+  return(list(plot = plot, exceed_ids = exceed_ids))
+}
+
+analyze_IGF1 = function(data, athlete_id) {  
+  # Filter data for the given athlete_id
+  df <- data %>%
+    filter(Athlete_Id == athlete_id)  
+  
+  # Convert date column to Date format and sort by date
+  df <- df %>% arrange(date_of_collection)
+  
+  sex = df$Sex  
+  # Remove outliers based on Z-score
+  no_outlier <- df %>%
+    mutate(z_scores = as.numeric(scale(IGF1_mean))) %>%
+    filter(abs(z_scores) < 2)
+  
+  # Compute lower and upper cutoffs (mean ± 3*SD)
+  lower_cutoff <- mean(no_outlier$IGF1_mean, na.rm = TRUE) - 3 * sd(no_outlier$IGF1_mean, na.rm = TRUE)
+  upper_cutoff <- mean(no_outlier$IGF1_mean, na.rm = TRUE) + 3 * sd(no_outlier$IGF1_mean, na.rm = TRUE)
+  
+  # Find max GH2000_score per athlete
+  max_IGF1 <- max(df$IGF1_mean, na.rm = TRUE)
+  
+  # Identify IDs exceeding the upper cutoff
+  exceed_ids <- ifelse(max_IGF1 > upper_cutoff, athlete_id, NA) %>% na.omit()
+  
+  # Generate the plot
+  plot <- ggplot(df, aes(x = date_of_collection, y = IGF1_mean, colour = Haemolysed)) +
+    geom_point(size = 3, color = "black") +                 
+    geom_line(color = "black") +                           
+    geom_hline(yintercept = lower_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = upper_cutoff, linetype = "dotted", color = "indianred") +
+    #geom_hline(yintercept = 9.98, linetype = "solid", color = "grey") +
+    #geom_hline(yintercept = 8.62, linetype = "solid", color = "grey") +  
+    scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black")) +  # Color red if Haemolysed, black otherwise
+    labs(
+      title = paste(athlete_id, "- Sex:", sex, "- IGF1 vs Date of Collection"),
+      x = "Date of Collection",
+      y = "IGF1 Mean",
+      color = "Haemolysed"  # Legend title
+    ) +
+    theme_minimal()
+  
+  # Return both the plot and the IDs that exceeded the cutoff
+  return(list(plot = plot, exceed_ids = exceed_ids))
+}
+```
+
+
+
+
+
+
+Identify Cases of high CV with multiple repeats 
+
+```{r}
+potential_cases = df_summary %>% 
+  filter(
+    (Sex == 'M' & CV > 15) | (Sex == 'F' & CV > 50),
+    num_of_repeats > 2
+  )
+unique_Ids = unique(potential_cases$Athlete_Id)
+unique_Ids
+```
+
+Plot the output for each suspicious athlete 
+
+```{r}
+plots <- lapply(unique_Ids, function(id) analyze_gh2000(df, id))
+
+
+# Apply function across all athletes
+exceeding_ids_gh <- unlist(lapply(unique_Ids, function(id) analyze_gh2000(df, id)$exceed_ids))
+
+exceeding_ids_p3np = unlist(lapply(unique_Ids, function(id) analyze_P3NP(df, id)$exceed_ids))
+
+exceeding_ids_igf1 = unlist(lapply(unique_Ids, function(id) analyze_IGF1(df,id)$exceed_ids))
+
+print(exceeding_ids_p3np)  # Shows all athletes where max_gh2000 > upper_cutoff
+
+# To display a specific plot, for example, the first one:
+print(plots[13])
+
+analyze_IGF1(df,"UKAD-2025-1261")
+exceeding_ids
+```
+
+```{r}
+analyze_gh2000(df, "UKAD-2025-1749")
+```
+
+Perform the Same with IGF, P3NP
+
+Do Haemolytic samples cause outliers? (calculate percentage of values with Z>2 that are haemolytic vs % of all values that are haemolytic)
+
+```{r}
+write_csv(df,"GH_5000_Preprocessed.csv")
+```
+
+
+```{r}
+ggplot(df, aes(x = GH2000_score, fill = as.factor(Haemolysed))) +
+  geom_histogram(alpha = 0.5, position = "identity", bins = 30) +
+  facet_wrap(~Haemolysed) +
+  theme_minimal() +
+  labs(title = "Histogram of GH2000 Score by Haemolysed Status", fill = "Haemolysed")
+
+```
+
+```{r}
+haemolysed = df %>% filter(Haemolysed == T)
+
+
+ggplot(haemolysed, aes(x = GH2000_score)) +
+  geom_histogram(alpha = 0.5, position = "identity", bins = 30) +
+  facet_wrap(~Haemolysed) +
+  theme_minimal() 
+```
+```{r}
+# Run Wilcoxon rank-sum test (Mann-Whitney U test)
+wilcox.test(GH2000_score ~ Haemolysed, data = df)
+
+```
+
+```{r}
+library(rcompanion)
+wilcoxR(x = df$GH2000_score, g = df$Haemolysed)
+
+```
+

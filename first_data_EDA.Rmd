@@ -1,0 +1,162 @@
+---
+title: "Exploratory Data Analysis"
+output: html_document
+date: "2025-01-19"
+---
+# Load in the libraries and the data
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+df = read.csv("originals/GH_2025.csv")
+
+```
+
+# Explore the data 
+
+Identify the variances and the means for IGF/P3NP across all athletes
+
+```{r}
+head(df)
+
+df = df %>%  # rename all the columns with R-approporiate names
+  rename(date_of_collection = Date.Of.Collection,
+         sport_name = Sport.Name,
+         discipline_name = Discipline.Name,
+         IGF1_mean = IGF.I.Mean,
+         P3NP_mean = PIIINP.Mean,
+         GH2000_score = GH.2000.Score,
+         new_Id = New.ID) %>%
+  mutate(sport_name = tolower(sport_name))
+
+df_multiple_tests <- df %>%
+  group_by(new_Id) %>%  # Group by 'new_Id'
+  filter(n() > 1) %>%   # Keep only groups with more than one row
+  ungroup()             # Ungroup the data
+
+df_summary <- df_multiple_tests %>%
+  group_by(new_Id) %>%  # Group by 'new_Id'
+  summarise(
+    min_gh2000 = min(GH2000_score, na.rm = TRUE),   # Minimum of gh2000_score
+    max_gh2000 = max(GH2000_score, na.rm = TRUE),   # Maximum of gh2000_score
+    variance = var(GH2000_score, na.rm = TRUE),
+    mean_gh2000 = mean(GH2000_score, na.rm = TRUE), # Mean of GH2000_score
+    sd_gh2000 = sd(GH2000_score, na.rm = TRUE),     # Standard deviation of GH2000_score
+    cutoff_point = mean(GH2000_score, na.rm = TRUE) + 3 * sd(GH2000_score, na.rm = TRUE),# Variance of gh2000_score
+    num_of_repeats = n(),
+    Sex = Sex,
+    CV = sd(GH2000_score, na.rm = TRUE)*100/mean(GH2000_score, na.rm = TRUE)# Count of repeats
+  ) %>%
+  ungroup() 
+
+mean_variance <- mean(df_summary$variance)
+
+ggplot(df_summary, aes(x = new_Id, y = variance, color=sport_name)) +
+  geom_point() +
+  geom_hline(yintercept = mean_variance, linetype = "dotted", color = "red") +
+  labs(title = "intra-indivudal variance plot",
+       y = "Variance",
+       x = "New ID",
+       color = "Sport Name") +
+  theme_minimal()
+
+df_summary %>%
+  filter(CV > 15, Sex == "M")
+```
+
+```{r}
+ukad_3_552 = 
+ukad_3_1017 = potential_cases %>% 
+  filter(new_Id == "UKAD-3-1017")
+
+
+ukad_3_1017$date_of_collection = as.Date(ukad_3_1017$date_of_collection,format = "%d/%m/%Y")
+ukad_3_1017 = ukad_3_1017 %>% arrange(date_of_collection)
+
+no_outlier = ukad_3_1017 %>% 
+  mutate(z_scores = as.numeric(scale(GH2000_score))) %>%
+  filter(abs(z_scores) < 2)
+
+lower_cutoff = mean(no_outlier$GH2000_score) - 3*sd(no_outlier$GH2000_score)
+upper_cutoff = mean(no_outlier$GH2000_score) + 3*sd(no_outlier$GH2000_score)
+
+ggplot(ukad_3_1017, aes(x = date_of_collection, y = GH2000_score)) +
+  geom_point(size = 3, color = "black") +                 # Scatter points
+  geom_line(color = "black") +                           # Connect points with lines
+  geom_hline(yintercept = lower_cutoff, linetype = "dotted", color = "indianred") +
+  geom_hline(yintercept = upper_cutoff, linetype = "dotted", color = "indianred") +
+  geom_hline(yintercept = 9.87, linetype = "solid", color = "grey") +  # Horizontal grey line
+  labs(
+    title = "3-1017 GH-2000 vs Date of collection",
+    x = "date_of_collection",
+    y = "GH-2000"
+  ) +
+  theme_minimal()
+
+```
+Identify Cases of high CV with multiple repeats 
+```{r}
+potential_cases = df_summary %>% 
+  filter(
+    (Sex == 'M' & CV > 15) | (Sex == 'F' & CV > 50),
+    num_of_repeats > 2
+  )
+
+```
+
+Create a function to analyze GH2000 without the outliers
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+analyze_gh2000 <- function(data, new_id) {
+  # Filter data for the given new_Id
+  df <- data %>%
+    filter(new_Id == new_id)
+  
+  # Convert date column to Date format and sort by date
+  df$date_of_collection <- as.Date(df$date_of_collection, format = "%d/%m/%Y")
+  df <- df %>% arrange(date_of_collection)
+  
+  # Remove outliers based on Z-score
+  no_outlier <- df %>%
+    mutate(z_scores = as.numeric(scale(GH2000_score))) %>%
+    filter(abs(z_scores) < 1.5)
+  
+  # Compute lower and upper cutoffs (mean ± 3*SD)
+  lower_cutoff <- mean(no_outlier$GH2000_score, na.rm = TRUE) - 3 * sd(no_outlier$GH2000_score, na.rm = TRUE)
+  upper_cutoff <- mean(no_outlier$GH2000_score, na.rm = TRUE) + 3 * sd(no_outlier$GH2000_score, na.rm = TRUE)
+  
+  # Generate the plot
+  plot <- ggplot(df, aes(x = date_of_collection, y = GH2000_score)) +
+    geom_point(size = 3, color = "black") +                 # Scatter points
+    geom_line(color = "black") +                           # Connect points with lines
+    geom_hline(yintercept = lower_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = upper_cutoff, linetype = "dotted", color = "indianred") +
+    geom_hline(yintercept = 9.87, linetype = "solid", color = "grey") +  # Horizontal grey line
+    labs(
+      title = paste(new_id, "GH-2000 vs Date of collection"),
+      x = "Date of Collection",
+      y = "GH-2000"
+    ) +
+    theme_minimal()
+  
+  return(plot)
+}
+
+```
+
+Apply the function to every athlete in the potential_cases 
+
+```{r}
+unique_ids <- unique(potential_cases$new_Id)
+
+
+plots <- lapply(unique_ids, function(id) analyze_gh2000(df, id))
+
+# To display a specific plot, for example, the first one:
+print(plots[1])
+```
+
